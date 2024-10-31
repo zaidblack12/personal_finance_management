@@ -1,10 +1,35 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.security import OAuth2PasswordRequestForm
+from jwt_handler import create_jwt
+from dependencies import get_current_user
 import psycopg2
 import json
 import time
 
 
 app = FastAPI()
+
+# Endpoint to obtain the JWT token
+@app.post("/token")
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    # For example purposes, use a hardcoded username and password
+    if form_data.username == "testuser" and form_data.password == "password":
+        token = create_jwt({"sub": form_data.username})
+        return {"access_token": token, "token_type": "bearer"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    # Endpoint to get the current user
+
+# Protected route that requires a valid JWT token
+@app.get("/protected-route")
+async def protected_route(current_user: dict = Depends(get_current_user)):
+    return {"message": f"Hello, {current_user['sub']}!"}
+# Endpoint to get the current user
+
 
 #Database connection function
 
@@ -64,4 +89,5 @@ def truncate():
     conn.close()
     return {"message": "Table truncated successfully"}
 # End of API endpoints
+
 
