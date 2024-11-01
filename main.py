@@ -4,6 +4,8 @@ from jwt_handler import create_jwt
 from dependencies import get_current_user
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
+from fastapi import Depends, Security
+from fastapi.security import OAuth2PasswordBearer
 import psycopg2
 import time
 import bcrypt   
@@ -11,6 +13,7 @@ import jwt
 
 SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
+
 
 
 #Database connection function
@@ -65,6 +68,33 @@ def login(user: UserLogin):
     finally:
         cur.close()
         conn.close()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
+
+@app.get("/user/me")
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Could not validate credentials")
+        conn = create_connection()
+        if conn is None:
+            raise HTTPException(status_code=500, detail="Database connection failed")
+        try:
+            cur = conn.cursor()
+            sql = "SELECT * FROM user_register WHERE username = %s"
+            val = (username,)
+            cur.execute(sql, val)
+            db_user = cur.fetchone()
+            if db_user is None:
+                raise HTTPException(status_code=404, detail="User not found")
+            return {"username": db_user[1], "email": db_user[3]}
+        finally:
+            cur.close()
+            conn.close()
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Access token expired")
 
 
 
@@ -125,7 +155,7 @@ def read_root(limit: int=100):
     return rows
 # End of root endpoint
 
-@app.post("/add_budget/")
+@app.post("/transaction/")
 def add_budget(category: str, labels: str, amount: float, payee: str, note: str, payment_type: str, location: str):
     current_datetime = time.strftime('%Y-%m-%d %H:%M:%S')
     conn = create_connection()
