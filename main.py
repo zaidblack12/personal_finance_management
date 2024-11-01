@@ -3,9 +3,15 @@ from fastapi.security import OAuth2PasswordRequestForm
 from jwt_handler import create_jwt
 from dependencies import get_current_user
 from pydantic import BaseModel, EmailStr
+from datetime import datetime, timedelta
 import psycopg2
 import time
 import bcrypt   
+import jwt
+
+SECRET_KEY = "your_secret_key"
+ALGORITHM = "HS256"
+
 
 #Database connection function
 
@@ -30,6 +36,37 @@ class UserCreate(BaseModel):
     username: str
     email: EmailStr
     password: str
+
+class  UserLogin(BaseModel):
+    username: str
+    password: str
+
+@app.post("/user/login/")
+def login(user: UserLogin):
+    conn = create_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cur = conn.cursor()
+        sql = "SELECT * FROM user_register WHERE username = %s"
+        val = (user.username,)
+        cur.execute(sql, val)
+        db_user = cur.fetchone()  # Fetch the user data
+        
+        if db_user is None or not bcrypt.checkpw(user.password.encode('utf-8'), db_user[2].encode('utf-8')):  # Assuming hashed_password is in the 3rd column
+            raise HTTPException(status_code=400, detail="Invalid credentials")
+
+        # Create JWT token
+        expiration = datetime.utcnow() + timedelta(hours=1)
+        token = jwt.encode({"sub": db_user[1], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
+
+        return {"access_token": token, "token_type": "bearer"}
+    finally:
+        cur.close()
+        conn.close()
+
+
 
 @app.post("/user/register/")
 def  register_user(user:  UserCreate):
