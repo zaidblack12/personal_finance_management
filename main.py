@@ -2,12 +2,58 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from jwt_handler import create_jwt
 from dependencies import get_current_user
+from pydantic import BaseModel, EmailStr
 import psycopg2
-import json
 import time
+import bcrypt   
+
+#Database connection function
+
+def create_connection():
+    try:
+        conn = psycopg2.connect(
+            host="localhost",
+            database="bank",
+            user="test_user",
+            password="test@123"
+            )
+        return conn
+    except psycopg2.Error as e:
+        print(f"Error: {e}")
+        return None
+    # End of database connection function
 
 
 app = FastAPI()
+
+class UserCreate(BaseModel):
+    username: str
+    email: EmailStr
+    password: str
+
+@app.post("/user/register/")
+def  register_user(user:  UserCreate):
+    conn = create_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cur = conn.cursor()
+        hashed_password = bcrypt.hashpw(user.password.encode('utf-8'), bcrypt.gensalt())
+        sql = """INSERT INTO user_register (username, email, password)
+                VALUES (%s, %s, %s)"""
+        val = (user.username, user.email, hashed_password.decode('utf-8'))
+        cur.execute(sql, val)
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+    finally:
+        conn.close()
+    
+    return {"message": "user registered successfully"}
+
+            # End of register_user function
+
 
 # Endpoint to obtain the JWT token
 @app.post("/token")
@@ -31,21 +77,6 @@ async def protected_route(current_user: dict = Depends(get_current_user)):
 # Endpoint to get the current user
 
 
-#Database connection function
-
-def create_connection():
-    try:
-        conn = psycopg2.connect(
-            host="localhost",
-            database="bank",
-            user="test_user",
-            password="test@123"
-            )
-        return conn
-    except psycopg2.Error as e:
-        print(f"Error: {e}")
-        return None
-    # End of database connection function
 
 @app.get("/")
 def read_root(limit: int=100):
