@@ -168,28 +168,53 @@ def add_transaction(transaction : TransactionCreate, user_id: int = Depends(get_
     
     return {"message": "Transaction added successfully"}
 
-
-@app.post("/transaction1/")
-def add_budget(category: str, labels: str, amount: float, payee: str, note: str, payment_type: str, location: str):
-    current_datetime = time.strftime('%Y-%m-%d %H:%M:%S')
+@app.put("/transactions/{transaction_id}")
+def update_transaction(transaction_id: int, transaction: TransactionCreate, user_id: int = Depends(get_current_user)):
     conn = create_connection()
-    
     if conn is None:
         raise HTTPException(status_code=500, detail="Database connection failed")
-
+    
     try:
         cur = conn.cursor()
-        sql = """INSERT INTO expense_tracker (datetime, category, labels, amount, payee, note, payment_type, location)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"""
-        val = (current_datetime, category, labels, amount, payee, note, payment_type, location)
+        check_sql = "SELECT * FROM expense_tracker WHERE rrn = %s AND user_id = %s"
+        cur.execute(check_sql, (transaction_id, user_id))
+        existing_transaction = cur.fetchone()
+
+        if existing_transaction is None:
+            raise HTTPException(status_code=404, detail="Transaction not found or not owned by user")
+
+        sql = """UPDATE expense_tracker SET category = %s, labels = %s, amount = %s,  
+        payee = %s, note = %s, payment_type = %s, location = %s
+        WHERE rrn = %s AND user_id = %s"""
+        val = (
+            transaction.category,
+            transaction.labels,
+            transaction.amount,
+            transaction.payee,
+            transaction.note,
+            transaction.payment_type,
+            transaction.location,
+            transaction_id,
+            user_id
+        )
         cur.execute(sql, val)
+
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="No update made, possibly due to incorrect transaction ID or user ID.")
+
         conn.commit()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
     finally:
+        cur.close()
         conn.close()
     
-    return {"message": "Budget added successfully"}
+    return {"message": "Transaction updated successfully"}
+
+                
+
+        
+        
 
 @app.delete("/truncate/")
 def truncate():
