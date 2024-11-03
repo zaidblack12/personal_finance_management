@@ -211,11 +211,6 @@ def update_transaction(transaction_id: int, transaction: TransactionCreate, user
     
     return {"message": "Transaction updated successfully"}
 
-                
-
-        
-        
-
 @app.delete("/truncate/")
 def truncate():
     conn = create_connection()
@@ -226,5 +221,25 @@ def truncate():
     conn.close()
     return {"message": "Table truncated successfully"}
 # End of API endpoints
+
+@app.delete("/transactions/{transaction_id}")
+def delete_transaction(transaction_id: int, user_id: int = Depends(get_current_user)):
+    conn = create_connection()
+    cur = conn.cursor()
+    sql = """DELETE FROM expense_tracker WHERE rrn = %s AND user_id = %s"""
+    val = (transaction_id, user_id)
+    
+    cur.execute(sql, val)
+    
+    if cur.rowcount == 0:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Transaction not found or not owned by user")
+    
+    conn.commit()
+    conn.close()
+    
+    return {"message": "Transaction deleted successfully"}
+
+
 
 
