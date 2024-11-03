@@ -60,7 +60,7 @@ def login(user: UserLogin):
 
         # Create JWT token
         expiration = datetime.utcnow() + timedelta(hours=1)
-        token = jwt.encode({"sub": db_user[1], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
+        token = jwt.encode({"sub": db_user[1], "user_id": db_user[0], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
 
         return {"access_token": token, "token_type": "bearer"}
     finally:
@@ -73,24 +73,10 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
 def get_current_user(token: str = Depends(oauth2_scheme)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        user_id = payload.get("user_id")  # Assuming you store user_id in the token
+        if user_id is None:
             raise HTTPException(status_code=401, detail="Could not validate credentials")
-        conn = create_connection()
-        if conn is None:
-            raise HTTPException(status_code=500, detail="Database connection failed")
-        try:
-            cur = conn.cursor()
-            sql = "SELECT * FROM user_register WHERE username = %s"
-            val = (username,)
-            cur.execute(sql, val)
-            db_user = cur.fetchone()
-            if db_user is None:
-                raise HTTPException(status_code=404, detail="User not found")
-            return {"username": db_user[1], "email": db_user[3]}
-        finally:
-            cur.close()
-            conn.close()
+        return user_id
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Access token expired")
 
@@ -133,7 +119,57 @@ def read_root(limit: int=100):
     return rows
 # End of root endpoint
 
+def get_current_user_id(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: int = payload.get("user_id")
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Could not validate credentials")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Access token expired")
+
+class TransactionCreate(BaseModel):
+    category:str
+    labels:str
+    amount: float
+    payee: str
+    note: str 
+    payment_type:str 
+    location:str 
+    # End of Transaction class
+
 @app.post("/transaction/")
+def add_transaction(transaction : TransactionCreate, user_id: int = Depends(get_current_user)):
+    current_datetime = time.strftime('%Y-%m-%d %H:%M:%S')
+    conn = create_connection()
+    if conn is None:
+        raise  HTTPException(status_code=500, detail="Database connection failed")
+    try:
+        cur = conn.cursor()
+        sql = """INSERT INTO expense_tracker (expense_date, category, labels, amount, payee, note, payment_type, location, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+        val = (
+            current_datetime, transaction.category, 
+            transaction.labels, 
+            transaction.amount, 
+            transaction.payee, 
+            transaction.note, 
+            transaction.payment_type, 
+            transaction.location, 
+            user_id  # Automatically injected from the token
+        )
+        cur.execute(sql, val)
+        conn.commit()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
+    finally:
+        conn.close()
+    
+    return {"message": "Transaction added successfully"}
+
+
+@app.post("/transaction1/")
 def add_budget(category: str, labels: str, amount: float, payee: str, note: str, payment_type: str, location: str):
     current_datetime = time.strftime('%Y-%m-%d %H:%M:%S')
     conn = create_connection()
