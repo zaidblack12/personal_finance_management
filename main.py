@@ -42,44 +42,17 @@ class  UserLogin(BaseModel):
     username: str
     password: str
 
-@app.post("/user/login/")
-def login(user: UserLogin):
-    conn = create_connection()
-    if conn is None:
-        raise HTTPException(status_code=500, detail="Database connection failed")
-
-    try:
-        cur = conn.cursor()
-        sql = "SELECT * FROM user_register WHERE username = %s"
-        val = (user.username,)
-        cur.execute(sql, val)
-        db_user = cur.fetchone()  # Fetch the user data
-        
-        if db_user is None or not bcrypt.checkpw(user.password.encode('utf-8'), db_user[2].encode('utf-8')):  # Assuming hashed_password is in the 3rd column
-            raise HTTPException(status_code=400, detail="Invalid credentials")
-
-        # Create JWT token
-        expiration = datetime.utcnow() + timedelta(hours=1)
-        token = jwt.encode({"sub": db_user[1], "user_id": db_user[0], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
-
-        return {"access_token": token, "token_type": "bearer"}
-    finally:
-        cur.close()
-        conn.close()
+class TransactionCreate(BaseModel):
+    category:str
+    labels:str
+    amount: float
+    payee: str
+    note: str 
+    payment_type:str 
+    location:str 
+    # End of Transaction class
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
-
-@app.get("/user/me")
-def get_current_user(token: str = Depends(oauth2_scheme)):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id = payload.get("user_id")  # Assuming you store user_id in the token
-        if user_id is None:
-            raise HTTPException(status_code=401, detail="Could not validate credentials")
-        return user_id
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Access token expired")
-
 
 
 @app.post("/user/register/")
@@ -106,8 +79,42 @@ def  register_user(user:  UserCreate):
             # End of register_user function
 
 
+@app.post("/user/login/")
+def login(user: UserLogin):
+    conn = create_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed")
+
+    try:
+        cur = conn.cursor()
+        sql = "SELECT * FROM user_register WHERE username = %s"
+        val = (user.username,)
+        cur.execute(sql, val)
+        db_user = cur.fetchone()  # Fetch the user data
+        
+        if db_user is None or not bcrypt.checkpw(user.password.encode('utf-8'), db_user[2].encode('utf-8')):  # Assuming hashed_password is in the 3rd column
+            raise HTTPException(status_code=400, detail="Invalid credentials")
+
+        # Create JWT token
+        expiration = datetime.utcnow() + timedelta(hours=1)
+        token = jwt.encode({"sub": db_user[1], "user_id": db_user[0], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
+
+        return {"access_token": token, "token_type": "bearer"}
+    finally:
+        cur.close()
+        conn.close()
 
 
+@app.get("/user/me")
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("user_id")  # Assuming you store user_id in the token
+        if user_id is None:
+            raise HTTPException(status_code=401, detail="Could not validate credentials")
+        return user_id
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Access token expired")
 
 @app.get("/")
 def read_root(limit: int=100):
@@ -129,15 +136,7 @@ def get_current_user_id(token: str = Depends(oauth2_scheme)):
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Access token expired")
 
-class TransactionCreate(BaseModel):
-    category:str
-    labels:str
-    amount: float
-    payee: str
-    note: str 
-    payment_type:str 
-    location:str 
-    # End of Transaction class
+
 
 @app.post("/transaction/")
 def add_transaction(transaction : TransactionCreate, user_id: int = Depends(get_current_user)):
