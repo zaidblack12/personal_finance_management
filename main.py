@@ -2,12 +2,17 @@ from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr
 from datetime import datetime, timedelta
-from fastapi import Depends, Security
+from fastapi import Depends, Security, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from fastapi.openapi.models import OAuthFlows as OAuthFlowsModel
+from fastapi.openapi.models import OAuthFlowPassword
+from fastapi.openapi.utils import get_openapi
+from jose import jwt
 import psycopg2
 import time
 import bcrypt   
 import jwt
+
 
 SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
@@ -52,11 +57,97 @@ class TransactionCreate(BaseModel):
     location:str 
     # End of Transaction class
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="users/login")
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="users/login",
+    scopes={
+        "read": "Read access to resources",
+        "write": "Write access to resources",
+        "admin": "Full admin access"
+    }
+)
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+    openapi_schema = get_openapi(
+        title="Expense Tracker API",
+        version="1.0.0",
+        description="API for managing users and tracking expenses",
+        routes=app.routes,
+    )
+    openapi_schema["components"]["securitySchemes"] = {
+        "OAuth2PasswordBearer": {
+            "type": "oauth2",
+            "flows": {
+                "password": {
+                    "tokenUrl": "/user/login/",
+                    "scopes": {
+                        "read": "Read access to resources",
+                        "write": "Write access to resources",
+                        "admin": "Full admin access",
+                    },
+                }
+            },
+        }
+    }
+    openapi_schema["security"] = [{"OAuth2PasswordBearer": []}]
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
 
+app.openapi = custom_openapi
+
+def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id = payload.get("user_id")
+        scopes = payload.get("scopes", [])
+        if user_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return {"user_id": user_id, "scopes": scopes}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token expired",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except jwt.JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+def check_scopes(required_scopes: list, user_scopes: list):
+    for scope in required_scopes:
+        if scope not in user_scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient scope",
+                headers={"WWW-Authenticate": f'Bearer scope="{scope}"'},
+            )
+@app.get("/secure-data/")
+def read_secure_data(
+    token_data: dict = Security(get_current_user, scopes=["read"])
+):
+    return {"message": "You have read access", "user_id": token_data["user_id"]}
+
+@app.post("/secure-write/")
+def write_secure_data(
+    token_data: dict = Security(get_current_user, scopes=["write"])
+):
+    return {"message": "You have write access", "user_id": token_data["user_id"]}
+
+@app.delete("/admin-only/")
+def admin_access(
+    token_data: dict = Security(get_current_user, scopes=["admin"])
+):
+    return {"message": "Admin access granted", "user_id": token_data["user_id"]}
 
 @app.post("/user/register/")
-def  register_user(user:  UserCreate):
+def register_user(user:  UserCreate):
     conn = create_connection()
     if conn is None:
         raise HTTPException(status_code=500, detail="Database connection failed")
@@ -79,8 +170,10 @@ def  register_user(user:  UserCreate):
             # End of register_user function
 
 
+from fastapi.security import OAuth2PasswordRequestForm
+
 @app.post("/user/login/")
-def login(user: UserLogin):
+def login(user: OAuth2PasswordRequestForm = Depends()):
     conn = create_connection()
     if conn is None:
         raise HTTPException(status_code=500, detail="Database connection failed")
@@ -90,19 +183,32 @@ def login(user: UserLogin):
         sql = "SELECT * FROM user_register WHERE username = %s"
         val = (user.username,)
         cur.execute(sql, val)
-        db_user = cur.fetchone()  # Fetch the user data
-        
-        if db_user is None or not bcrypt.checkpw(user.password.encode('utf-8'), db_user[2].encode('utf-8')):  # Assuming hashed_password is in the 3rd column
+        db_user = cur.fetchone()
+
+        if db_user is None or not bcrypt.checkpw(user.password.encode('utf-8'), db_user[2].encode('utf-8')):
             raise HTTPException(status_code=400, detail="Invalid credentials")
+        
+        # Example: Assign default scopes (could be dynamic based on user role)
+        scopes = ["read", "write"]
 
         # Create JWT token
         expiration = datetime.utcnow() + timedelta(hours=1)
-        token = jwt.encode({"sub": db_user[1], "user_id": db_user[0], "exp": expiration}, SECRET_KEY, algorithm=ALGORITHM)  # Assuming username is in the 2nd column
+        token = jwt.encode(
+            {
+                "sub": db_user[1],
+                "user_id": db_user[0],
+                "scopes": scopes,  # Include scopes in the token
+                "exp": expiration,
+            },
+            SECRET_KEY,
+            algorithm=ALGORITHM,
+        )
 
         return {"access_token": token, "token_type": "bearer"}
     finally:
         cur.close()
         conn.close()
+
 
 
 @app.get("/user/me")
