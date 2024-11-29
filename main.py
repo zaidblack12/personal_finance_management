@@ -117,10 +117,13 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=401, detail="Access token expired")
 
 @app.get("/")
-def read_root(limit: int=100):
+def read_root( user_id: int = Depends(get_current_user)):
     conn = create_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM expense_tracker LIMIT %s", (limit,))
+    
+    sql = "SELECT * FROM expense_tracker WHERE user_id = %s"
+    val = (user_id,)
+    cur.execute(sql, val)
     rows = cur.fetchall()
     conn.close()
     return rows
