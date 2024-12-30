@@ -1,6 +1,5 @@
-Here's a comprehensive README file for your FastAPI-based project:
 
-```markdown
+
 # Expense Tracker API
 
 An API for managing user accounts and tracking expenses, built using **FastAPI** and **PostgreSQL**. The API supports user registration, login with JWT authentication, and CRUD operations on transactions.
@@ -30,8 +29,8 @@ An API for managing user accounts and tracking expenses, built using **FastAPI**
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/expense-tracker-api.git
-   cd expense-tracker-api
+   git clone https://github.com/zaidblack12/personal_finance_management.git
+   cd personal_finance_management
    ```
 
 2. **Install dependencies**:
